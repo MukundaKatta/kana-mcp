@@ -61,25 +61,41 @@ const TOOLS = [
   },
 ] as const;
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+type ToolResult = {
+  content: { type: 'text'; text: string }[];
+  isError?: boolean;
+};
 
-server.setRequestHandler(CallToolRequestSchema, async (req) => {
-  const { name, arguments: args } = req.params;
+/**
+ * Dispatch a tool call by name with the given arguments. Validates that
+ * `text` is a string and converts any thrown error into an error result so
+ * the server never crashes on malformed input.
+ */
+export function callTool(name: string, args: unknown): ToolResult {
   try {
-    const a = args as unknown as { text: string };
-    if (name === 'to_hiragana') return textResult(toHiragana(a.text));
-    if (name === 'to_katakana') return textResult(toKatakana(a.text));
-    if (name === 'to_romaji') return textResult(toRomaji(a.text));
+    const text = (args as Record<string, unknown> | undefined)?.text;
+    if (typeof text !== 'string') {
+      return errorResult("missing or invalid 'text' argument: expected a string");
+    }
+    if (name === 'to_hiragana') return textResult(toHiragana(text));
+    if (name === 'to_katakana') return textResult(toKatakana(text));
+    if (name === 'to_romaji') return textResult(toRomaji(text));
     return errorResult('unknown tool: ' + name);
   } catch (err) {
     return errorResult('kana failed: ' + (err as Error).message);
   }
-});
+}
 
-function textResult(text: string) {
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+
+server.setRequestHandler(CallToolRequestSchema, async (req) =>
+  callTool(req.params.name, req.params.arguments),
+);
+
+function textResult(text: string): ToolResult {
   return { content: [{ type: 'text', text }] };
 }
-function errorResult(message: string) {
+function errorResult(message: string): ToolResult {
   return { isError: true, content: [{ type: 'text', text: message }] };
 }
 
